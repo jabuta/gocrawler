@@ -1,35 +1,44 @@
 package main
 
 import (
+	"fmt"
+	"net/url"
 	"strings"
 
 	"golang.org/x/net/html"
 )
 
 func getURLsFromHTML(htmlBody, rawBaseURL string) ([]string, error) {
+	baseURL, err := url.Parse(rawBaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("couldn't parse base URL: %v", err)
+	}
+
 	htmlReader := strings.NewReader(htmlBody)
 	nodes, err := html.Parse(htmlReader)
 	if err != nil {
-		return []string{}, err
+		return nil, err
 	}
-	links := []string{}
+	var links []string
 	var f func(n *html.Node)
 	f = func(n *html.Node) {
-		if n.Type == html.ElementNode && (n.Data == "a" || n.Data == "button") {
+		if n.Type == html.ElementNode && n.Data == "a" {
 			for _, attr := range n.Attr {
 				if attr.Key == "href" {
-					href := attr.Val
-					if !strings.Contains(href, rawBaseURL) {
-						href = rawBaseURL + href
+					href, err := url.Parse(attr.Val)
+					if err != nil {
+						fmt.Printf("couldn't parse href '%v': %v\n", attr.Val, err)
+						continue
 					}
-					links = append(links, href)
+					resolvedURL := baseURL.ResolveReference(href)
+					links = append(links, resolvedURL.String())
 				}
 			}
 		}
-		for c := n.FirstChild; c != nil; c = n.NextSibling {
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
 			f(c)
 		}
 	}
 	f(nodes)
-	return []string{}, nil
+	return links, nil
 }
