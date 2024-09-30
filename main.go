@@ -2,23 +2,40 @@ package main
 
 import (
 	"fmt"
+	"log"
+	"net/url"
 	"os"
+	"sync"
 )
 
 func main() {
-	fmt.Println("Hello, World!")
-	rawBaseURL := getArgs()
-	fmt.Print(getHTML(rawBaseURL))
+
+	url := getArgs()
+
+	var cfg = config{
+		pages:              map[string]int{},
+		baseURL:            url,
+		concurrencyControl: make(chan struct{}, 100),
+		mu:                 &sync.Mutex{},
+		wg:                 &sync.WaitGroup{},
+	}
+	cfg.wg.Add(1)
+	go cfg.crawlPage(cfg.baseURL.String())
+	cfg.wg.Wait()
+	fmt.Print(cfg.pages)
 }
 
-func getArgs() string {
+func getArgs() *url.URL {
 	if len(os.Args) < 2 {
-		fmt.Print("no website provided")
-		os.Exit(1)
+		log.Fatalf("no website provided")
 	} else if len(os.Args) > 2 {
-		fmt.Print("too many arguments provided")
-		os.Exit(1)
+		log.Fatalf("too many arguments provided")
+	}
+	url, err := url.Parse(os.Args[1])
+	if err != nil {
+		log.Fatalf("Malformed URL: %v", err)
 	}
 	fmt.Printf("- 'starting crawl'\n- '%s   ", os.Args[1])
-	return os.Args[1]
+
+	return url
 }
