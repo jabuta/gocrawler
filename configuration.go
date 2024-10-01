@@ -9,9 +9,46 @@ import (
 type config struct {
 	pages              map[string]int
 	baseURL            *url.URL
-	mu                 *sync.Mutex
+	mu                 *sync.RWMutex
 	concurrencyControl chan struct{}
 	wg                 *sync.WaitGroup
+	maxPages           int
+}
+
+func (cfg *config) crawlPage(rawCurrentURL string) {
+
+	cfg.concurrencyControl <- struct{}{}
+	defer func() {
+		cfg.wg.Done()
+		<-cfg.concurrencyControl
+	}()
+
+	if func() bool {
+		cfg.mu.RLock()
+		defer cfg.mu.RUnlock()
+		return !(len(cfg.pages) < cfg.maxPages)
+	}() {
+		return
+	}
+
+	if !cfg.addCurrentUrl(rawCurrentURL) {
+		return
+	}
+	fmt.Printf("crawling %s\n", rawCurrentURL)
+	htmlBody, err := getHTML(rawCurrentURL)
+	if err != nil {
+		fmt.Printf("Couldn't crawl %s, error: %v\n", rawCurrentURL, err)
+		return
+	}
+	urlsToCrawl, err := getURLsFromHTML(htmlBody, cfg.baseURL)
+	if err != nil {
+		fmt.Printf("Couldn't parse html in %s,\n error: %v\n", rawCurrentURL, err)
+		return
+	}
+	for _, urlToCrawl := range urlsToCrawl {
+		cfg.wg.Add(1)
+		go cfg.crawlPage(urlToCrawl)
+	}
 }
 
 func (cfg *config) addCurrentUrl(rawCurrentURL string) bool {
@@ -28,7 +65,6 @@ func (cfg *config) addCurrentUrl(rawCurrentURL string) bool {
 	}
 	if parsedCurrentURL.Hostname() != cfg.baseURL.Hostname() {
 		fmt.Println(parsedCurrentURL.Hostname(), cfg.baseURL.Hostname())
-		fmt.Println("4 if hostname")
 
 		if _, ok := cfg.pages[normalizedCurrentURL]; !ok {
 			cfg.pages[normalizedCurrentURL] = 1
@@ -38,7 +74,6 @@ func (cfg *config) addCurrentUrl(rawCurrentURL string) bool {
 		return false
 	}
 	if _, ok := cfg.pages[normalizedCurrentURL]; ok {
-		fmt.Println("5 in url list")
 		cfg.pages[normalizedCurrentURL]++
 		return false
 	}
